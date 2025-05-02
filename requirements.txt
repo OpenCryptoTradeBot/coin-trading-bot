@@ -1,0 +1,2 @@
+pyupbit==0.2.34
+python-dotenv==1.1.0
