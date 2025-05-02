@@ -6,7 +6,7 @@
 
 ## ✅ Requirements
 
-- `python` >= 3.10
+- `python` >= 3.11
 - Docker + NVIDIA GPU (optional but recommended)
 
 ## 📁 Project Structure
