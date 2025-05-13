@@ -28,7 +28,7 @@ coin-trading-bot/
 
 ## ⚡️ Quick start
 
-### 🌱 Setup environment variables
+### 🌱 Setup Environment Variables
 
 루트 디렉토리에 `.env` 파일 생성:
 ```
@@ -51,11 +51,17 @@ docker run --gpus all -it --rm -v ${PWD}:/app crypto-trader
 만약 직접 터미널에 들어가서 작업하고 싶으면:
 
 ```bash
-docker run --gpus all -it --rm -v ${PWD}:/app crypto-trader
+docker run --gpus all -it --rm -v ${PWD}:/app crypto-trader /bin/bash
 ```
 
 ### 🏃 Run Training
 
+특정 모델 하나만 학습시키고 싶을 경우:
+```bash
+python -m scripts.train_classifier
+```
+
+강화학습 엔트리포인트:
 ```bash
 python train.py
 ```

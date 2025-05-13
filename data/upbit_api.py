@@ -1,3 +1,4 @@
+from datetime import datetime
 import requests
 from typing import Optional
 
@@ -16,7 +17,13 @@ class UpbitAPI:
             return resp.json()[0]
         return None
 
-    def get_candles(self, market: str, unit: str = "minute", interval: int = 1, count: int = 200) -> Optional[list]:
+    def get_candles(
+        self, market: str, 
+        unit: str = "minute", 
+        interval: int = 1, 
+        count: int = 200, 
+        to: Optional[datetime] = None
+    ) -> Optional[list]:
         """
         지정된 마켓의 캔들 데이터를 조회한다.
         - unit: 'minute', 'day', 'week', 'month'
@@ -27,7 +34,11 @@ class UpbitAPI:
             url = f"{self.BASE_URL}/candles/minutes/{interval}"
         else:
             url = f"{self.BASE_URL}/candles/{unit}s"
-        params = {"market": market, "count": count}
+        params = {
+            "market": market,
+            "count": count,
+            **({"to": to.strftime("%Y-%m-%d %H:%M:%S")} if to else {})
+        }
         resp = self.session.get(url, params=params)
         if resp.status_code == 200:
             return resp.json()
