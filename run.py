@@ -3,7 +3,6 @@ from datetime import datetime
 import torch
 
 from agents import TradingAgent
-from config.model import ModelConfig
 from data.preprocess.ohlcv_data import preprocess_candles, preprocess_sequence_input
 from data.upbit_api import UpbitAPI
 from envs.trading_env import TradingEnv
@@ -14,11 +13,11 @@ print("✅ GPU is available." if torch.cuda.is_available() else "❌ GPU is not 
 
 # 마켓, 시퀀스 크기 설정
 market = "KRW-XRP"
-window_size = ModelConfig.window_size
+window_size = 20
 
 # 데이터 받아오기
 api = UpbitAPI()
-raw_data = api.get_candles(market, to=datetime(2025, 5, 13, 0, 0, 0))
+raw_data = api.get_candles(market, to=datetime(2025, 5, 12, 0, 0, 0))
 df = preprocess_candles(raw_data)
 price_data = preprocess_sequence_input(df, window_size)
 

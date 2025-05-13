@@ -60,8 +60,7 @@ class TradingEnv:
             df = preprocess_candles(raw_data)
             window = preprocess_sequence_input(df, self.window_size)
         else:
-            window = self.data[self.current_step - self.window_size:self.current_step]
-
+            window = self.data[self.current_step]
         return window.astype(np.float32), self.balance, self.holdings
 
     def step(self, action: int, weight: float) -> Tuple[np.ndarray, float, bool, dict]:
@@ -80,7 +79,7 @@ class TradingEnv:
                 - dict: 기타 정보
         """
         # 현재 시점 가격 (close price)
-        price = self.data[self.current_step][3]
+        price = self.data[self.current_step][-1][3]
 
         # 행동 실행
         if action == 1 and self.balance > 0 and weight > 0:  # BUY
@@ -104,7 +103,7 @@ class TradingEnv:
 
         # 다음 상태
         next_state = self._get_state()
-        next_price = self.data[self.current_step][3]
+        next_price = self.data[self.current_step][-1][3]
         portfolio = self.balance + self.holdings * next_price
 
         # 가격 변화 비율
