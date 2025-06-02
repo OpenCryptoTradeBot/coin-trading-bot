@@ -16,6 +16,27 @@ def kelly_with_fee(p, q, b, a, fee = 0.001):
     f = numerator / denominator
     return max(0, min(f, 1.0))  # 0~1 사이로 제한
 
+def get_optimal_bet_size(X_new, classifier, reg_b, reg_a, fee=0.001):
+    """
+    X_new: 신규 입력 피처 (DataFrame 또는 배열 형태)
+    classifier: 분류 모델 (predict_proba() 필요)
+    reg_b: 수익률 회귀 모델
+    reg_a: 손실률 회귀 모델
+    """
+    # 1. 수익 확률 예측 (p)
+    proba = classifier.predict_proba(X_new)[0]
+    p = proba[1]  # class 1 = 수익 날 확률
+    q = 1 - p
+
+    # 2. 수익률/손실률 예측 (b, a)
+    b = max(0, reg_b.predict(X_new)[0])
+    a = max(0, reg_a.predict(X_new)[0])
+
+    # 3. 켈리 공식 적용
+    f = kelly_with_fee(p, q, b, a, fee)
+    return f
+
+
 def main():
     # 가상의 수익률 시계열 예시 (실제로는 API 데이터에서 계산됨)
     np.random.seed(50)
