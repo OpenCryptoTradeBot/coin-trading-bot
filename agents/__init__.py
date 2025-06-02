@@ -34,7 +34,7 @@ class TradingAgent:
                 - holdings (float): 코인 보유량 (사용하지 않음)
 
         Returns:
-            int: 선택된 행동 인덱스 (예: 0=SELL, 1=HOLD, 2=BUY)
+            int: 선택된 행동 인덱스 (예: 2=SELL, 0=HOLD, 1=BUY)
         """
         price_data, _, _ = state
 

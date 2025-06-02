@@ -10,7 +10,7 @@ def plot_price_ma(df: pd.DataFrame):
         plt.plot(df["datetime"], df["ma5"], label="MA5", linestyle="--")
     if "ma20" in df.columns:
         plt.plot(df["datetime"], df["ma20"], label="MA20", linestyle="--")
-    plt.title("📈 종가 + 이동평균선")
+    plt.title(" 종가 + 이동평균선")
     plt.xlabel("Time")
     plt.ylabel("Price (KRW)")
     plt.legend()
@@ -26,7 +26,7 @@ def plot_rsi(df: pd.DataFrame):
     plt.plot(df["datetime"], df["rsi14"], label="RSI(14)", color="purple")
     plt.axhline(70, color="red", linestyle="--", label="Overbought")
     plt.axhline(30, color="green", linestyle="--", label="Oversold")
-    plt.title("📊 RSI (Relative Strength Index)")
+    plt.title(" RSI (Relative Strength Index)")
     plt.xlabel("Time")
     plt.ylabel("RSI")
     plt.legend()
