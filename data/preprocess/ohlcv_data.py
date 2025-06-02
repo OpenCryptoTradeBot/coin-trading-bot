@@ -89,7 +89,12 @@ def create_labels(
     for i in range(window, len(prices) - 1):
         now = prices[i]
         future = prices[i + 1]
-        label = 1 if future > now else 0
-        labels.append(label)
+        change = (future - now) / now
+        if change >= 0.0002:
+            labels.append(1)  # 상승
+        elif change <= -0.0002:
+            labels.append(2)  # 하락
+        else:
+            labels.append(0)  # 변동 없음
 
     return np.array(labels, dtype=np.int64)
