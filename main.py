@@ -1,5 +1,5 @@
 from data.upbit_api import UpbitAPI
-from data.preprocess import preprocess_candles
+from data.preprocess.ohlcv_data import preprocess_candles
 from data.indicators import compute_rsi
 from data.visualization import plot_rsi
 import matplotlib.pyplot as plt

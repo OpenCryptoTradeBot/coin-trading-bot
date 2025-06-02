@@ -12,7 +12,7 @@ class PriceMovementClassifier(nn.Module):
             bidirectional=True  # 양방향 GRU 사용
         )
         self.dropout = nn.Dropout(0.3)
-        self.fc = nn.Linear(hidden_dim * 2, 2)
+        self.fc = nn.Linear(hidden_dim * 2, 3)
 
     def forward(self, x):
         out, _ = self.gru(x)    # out: (B, T, H*2)

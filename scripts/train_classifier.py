@@ -1,7 +1,10 @@
+from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
+from sklearn.model_selection import train_test_split
 from datetime import datetime, timedelta
 from time import sleep
 import torch
-from torch.utils.data import Dataset, DataLoader
+import torch.nn as nn
+from torch.utils.data import Dataset, DataLoader, Subset
 import pandas as pd
 import matplotlib.pyplot as plt
 
@@ -29,11 +32,13 @@ class OHLCVDataset(Dataset):
 def train(
     model,
     dataloader, 
+    val_loader,
     epochs: int = 10, 
     lr: float = 1e-4, 
     save_path: str = "models/price_classifier.pt",
     log_freq: int = 100,
-    show_plot: bool = False
+    show_plot: bool = False,
+    plot_path: str = "etc/loss_acc_plot.png"
 ) -> None:
     """
     시계열 가격 추세 분류 모델 학습 함수.
@@ -57,7 +62,7 @@ def train(
     # 모델을 GPU (혹은 CPU)로 옮김
     model = model.to(device)
     # 에폭 및 학습률 설정
-    epochs = PMCModelConfig.epochs
+    #epochs = PMCModelConfig.epochs
     lr = PMCModelConfig.lr
     # 손실함수 설정
     loss_fn_class = getattr(torch.nn, PMCModelConfig.loss_fn)
@@ -72,10 +77,12 @@ def train(
         loss_list = {"train": [], "val": []}    # 추후 검증용 데이터도 넣을 수도 있기 때문에 따로 추가해둠
         accuracy_list = {"train": [], "val": []}
 
-    # 모델 학습 시작
-    model.train()
+    
     # 데이터셋을 epochs만큼 반복
     for epoch in range(epochs):
+        # 모델 학습 시작
+        model.train()
+
         total_loss = 0
         correct = 0
         total = 0
@@ -104,16 +111,31 @@ def train(
             # 전체 데이터 개수 저장
             total += labels.size(0)
 
-        # 출력
-        if (epoch + 1) % log_freq == 0:
-            print(f"[Epoch {epoch + 1:3d}] Loss: {total_loss:2.4f}, Accuracy: {correct / total:.8f}")
-            # 평균 손실 / 정확도 기록 후 지표 리스트에 추가
-            if show_plot:
-                avg_loss = total_loss / len(dataloader)
-                avg_acc = correct / total
-                loss_list["train"].append(avg_loss)
-                accuracy_list["train"].append(avg_acc)
+        # --- 검증 ---
+        model.eval()
+        val_loss, val_correct, val_total = 0, 0, 0
+        with torch.no_grad():
+            for xb, yb in val_loader:
+                xb, yb = xb.to(device), yb.to(device)
+                preds = model(xb)
+                val_loss += loss_fn(preds, yb).item()
+                val_correct += (preds.argmax(1) == yb).sum().item()
+                val_total += yb.size(0)
+        
+        avg_val_loss = val_loss / len(val_loader)
+        avg_val_acc = val_correct / val_total
 
+        # 출력 및 기록
+        if (epoch + 1) % log_freq == 0:
+            print(f"[Epoch {epoch + 1:3d}] Train Loss: {total_loss:2.4f}, Accuracy: {correct / total:.8f} | Val Loss: {val_loss:.4f}, Acc: {avg_val_acc:.4f}")
+
+        if show_plot:
+            avg_loss = total_loss / len(dataloader)
+            avg_acc = correct / total
+            loss_list["train"].append(avg_loss)
+            accuracy_list["train"].append(avg_acc)
+            loss_list["val"].append(avg_val_loss)
+            accuracy_list["val"].append(avg_val_acc)
     # 모델 저장
     torch.save(model.state_dict(), save_path)
     print(f"✅ 모델 저장 완료: {save_path}")
@@ -123,7 +145,7 @@ def train(
         # 훈련 손실 그래프
         plt.subplot(121)
         plt.plot(loss_list["train"])
-        # plt.plot(loss_list["val"])
+        plt.plot(loss_list["val"])
         plt.title('Model Loss')
         plt.xlabel('Epoch')
         plt.ylabel('Loss')
@@ -132,14 +154,36 @@ def train(
         # 훈련 정확도 그래프
         plt.subplot(122)
         plt.plot(accuracy_list["train"])
-        # plt.plot(accuracy_list["val"])
+        plt.plot(accuracy_list["val"])
         plt.title('Model Accuracy')
         plt.xlabel('Epoch')
         plt.ylabel('Accuracy')
         plt.legend(['train', 'val'], loc='lower right')
         plt.tight_layout()
+        plt.savefig(plot_path)
+        print(f"학습 시각화 이미지 저장 완료: {plot_path}")
         plt.show()
+        # 혼동 행렬 시각화
+        all_preds = []
+        all_labels = []
+        model.eval()
+        with torch.no_grad():
+            for xb, yb in val_loader:
+                xb = xb.to(device)
+                preds = model(xb)
+                pred_labels = preds.argmax(1).cpu().numpy()
+                all_preds.extend(pred_labels)
+                all_labels.extend(yb.numpy())
 
+        cm = confusion_matrix(all_labels, all_preds)
+        disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=["변동 없음", "상승", "하락"])
+        fig, ax = plt.subplots(figsize=(5, 4))
+        disp.plot(cmap="Blues", values_format="d", ax=ax)
+        plt.title("혼동 행렬")
+        plt.tight_layout()
+        plt.savefig("etc/confusion_matrix.png")
+        print("혼동 행렬 이미지 저장 완료: etc/confusion_matrix.png")
+        plt.show()
 
 if __name__ == "__main__":
     # 데이터셋 불러오기
@@ -163,13 +207,21 @@ if __name__ == "__main__":
     # 전체 데이터프레임 연결
     full_df = pd.concat(dfs, ignore_index=True).sort_values("datetime").reset_index(drop=True)
     # 입력 데이터와 라벨 데이터로 전처리(데이터셋)
-    dataset = OHLCVDataset(df, window=20)
+    dataset = OHLCVDataset(full_df, window=20)
+    # ✅ train/val 분할
+    indices = list(range(len(dataset)))
+    train_idx, val_idx = train_test_split(indices, test_size=0.2, shuffle=False)
+
+    train_set = Subset(dataset, train_idx)
+    val_set = Subset(dataset, val_idx)
+
     # 데이터 로더로 저장
-    dataloader = DataLoader(dataset, batch_size=64, shuffle=True)
+    train_loader = DataLoader(train_set, batch_size=64, shuffle=True)
+    val_loader = DataLoader(val_set, batch_size=64, shuffle=False)
 
     # 입력 차원 확인 (ex: (20, 5) => input_dim=5)
     sample_x, _ = dataset[0]
     input_dim = sample_x.shape[-1]  # 마지막 인덱스 값: 한 시점 당 피처 개수
 
     model = PriceMovementClassifier(input_dim=input_dim)
-    train(model, dataloader, epochs=10_000, show_plot=True)
+    train(model, dataloader=train_loader, val_loader=val_loader, epochs=10_000, log_freq= 100,show_plot=True)
