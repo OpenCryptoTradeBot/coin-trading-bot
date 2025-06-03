@@ -176,10 +176,10 @@ def train(
                 all_labels.extend(yb.numpy())
 
         cm = confusion_matrix(all_labels, all_preds)
-        disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=["변동 없음", "상승", "하락"])
+        disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=["No Change", "Up", "Down"])
         fig, ax = plt.subplots(figsize=(5, 4))
         disp.plot(cmap="Blues", values_format="d", ax=ax)
-        plt.title("혼동 행렬")
+        plt.title("Confusion Matrix")
         plt.tight_layout()
         plt.savefig("etc/confusion_matrix.png")
         print("혼동 행렬 이미지 저장 완료: etc/confusion_matrix.png")
