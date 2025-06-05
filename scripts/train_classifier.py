@@ -1,22 +1,31 @@
-from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
+from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay, classification_report
 from sklearn.model_selection import train_test_split
+from sklearn.utils.class_weight import compute_class_weight
 from datetime import datetime, timedelta
 from time import sleep
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader, Subset
 import pandas as pd
+import numpy as np
 import matplotlib.pyplot as plt
 
-from agents.networks.classifier import PriceMovementClassifier
+from agents.networks.classifier import PriceMovementClassifier, AttentionGRUClassifier
 from config.model import PMCModelConfig
-from data.preprocess.ohlcv_data import preprocess_candles, preprocess_sequence_input, create_labels
+from data.preprocess.ohlcv_data import preprocess_candles, preprocess_sequence_input, create_labels, normalize_features
 from data.upbit_api import UpbitAPI
 
 # Dataset
 class OHLCVDataset(Dataset):
     def __init__(self, df: pd.DataFrame, window: int):
-        self.features = preprocess_sequence_input(df, window)[:-1]
+        feature_cols = [
+            "open", "high", "low", "close", "volume",
+            "ema5", "ema10", "ema20", "rsi14",
+            "macd", "macd_signal", "macd_hist",
+            "bb_ema_upper", "bb_ema_lower",
+            "vol_ma5", "vol_ma20"
+        ]
+        self.features = preprocess_sequence_input(df, window, feature_cols=feature_cols)[:-1]
         self.labels = create_labels(df, window)
 
     def __len__(self):
@@ -64,13 +73,24 @@ def train(
     # 에폭 및 학습률 설정
     #epochs = PMCModelConfig.epochs
     lr = PMCModelConfig.lr
-    # 손실함수 설정
-    loss_fn_class = getattr(torch.nn, PMCModelConfig.loss_fn)
-    loss_fn = loss_fn_class()
-    torch.nn.CrossEntropyLoss
+    # 손실함수 설정 -> 가중치 적용함
+    #loss_fn_class = getattr(torch.nn, PMCModelConfig.loss_fn)
+    #loss_fn = loss_fn_class()
+    #torch.nn.CrossEntropyLoss
+    all_labels = torch.cat([y for _, y in dataloader], dim=0).cpu().numpy()
+    weight_tensor = torch.tensor([0.8, 1.5, 1.5], dtype=torch.float32).to(device)
+    loss_fn = torch.nn.CrossEntropyLoss(weight=weight_tensor)
     # 옵티마이저 설정
     optim_class = getattr(torch.optim, PMCModelConfig.optim)
     optimizer = optim_class(model.parameters(), lr=lr)
+    #최적모델을 저장하기위한 변수 설정정
+    best_val_acc = 0.0
+    patience = 100
+    no_improve_epochs = 0
+    # ReduceLROnPlateau 설정
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, mode="min", factor=0.5, patience=10
+    )
 
     # 지표 기록용 리스트 변수
     if show_plot:
@@ -125,6 +145,8 @@ def train(
         avg_val_loss = val_loss / len(val_loader)
         avg_val_acc = val_correct / val_total
 
+        scheduler.step(val_loss)
+
         # 출력 및 기록
         if (epoch + 1) % log_freq == 0:
             print(f"[Epoch {epoch + 1:3d}] Train Loss: {total_loss:2.4f}, Accuracy: {correct / total:.8f} | Val Loss: {val_loss:.4f}, Acc: {avg_val_acc:.4f}")
@@ -137,8 +159,17 @@ def train(
             loss_list["val"].append(avg_val_loss)
             accuracy_list["val"].append(avg_val_acc)
     # 모델 저장
-    torch.save(model.state_dict(), save_path)
-    print(f"✅ 모델 저장 완료: {save_path}")
+        if avg_val_acc > best_val_acc:
+            best_val_acc = avg_val_acc
+            no_improve_epochs = 0
+            torch.save(model.state_dict(), save_path)
+        else:
+            no_improve_epochs += 1
+        if no_improve_epochs >= patience:
+            print(f"Early stopping triggered at epoch {epoch}")
+            print(f"✅ 모델 저장 완료: {save_path}")
+            break
+
     # 그래프 출력
     if show_plot:
         plt.figure(figsize=(8,3))
@@ -185,10 +216,29 @@ def train(
         print("혼동 행렬 이미지 저장 완료: etc/confusion_matrix.png")
         plt.show()
 
+        all_preds = []
+        all_labels = []
+
+        with torch.no_grad():
+            for inputs, labels in val_loader:
+                inputs = inputs.to(device)
+                labels = labels.to(device)
+                outputs = model(inputs)
+                preds = torch.argmax(outputs, dim=1)
+
+                all_preds.extend(preds.cpu().tolist())
+                all_labels.extend(labels.cpu().tolist())
+
+        # 🔽 F1-score, precision, recall 출력
+        print(classification_report(
+            all_labels, all_preds,
+            target_names=["No Change", "Up", "Down"]
+        ))
+
 if __name__ == "__main__":
     # 데이터셋 불러오기
     api = UpbitAPI()
-    dt = datetime(2025, 1, 1, 0, 0, 0)
+    dt = datetime(2025, 2, 28, 0, 0, 0)
     dfs = []  # 여러 개의 DataFrame 저장 리스트
 
     for i in range(100):
@@ -206,22 +256,54 @@ if __name__ == "__main__":
 
     # 전체 데이터프레임 연결
     full_df = pd.concat(dfs, ignore_index=True).sort_values("datetime").reset_index(drop=True)
-    # 입력 데이터와 라벨 데이터로 전처리(데이터셋)
-    dataset = OHLCVDataset(full_df, window=20)
-    # ✅ train/val 분할
-    indices = list(range(len(dataset)))
-    train_idx, val_idx = train_test_split(indices, test_size=0.2, shuffle=False)
+    full_df = full_df.dropna().reset_index(drop=True) #이거 해준거 아닌가?
 
-    train_set = Subset(dataset, train_idx)
-    val_set = Subset(dataset, val_idx)
+    # ✅ feature 컬럼 정의
+    feature_cols = [
+        "open", "high", "low", "close", "volume",
+        "ema5", "ema10", "ema20", "rsi14",
+        "macd", "macd_signal", "macd_hist",
+        "bb_ema_upper", "bb_ema_lower",
+        "vol_ma5", "vol_ma20"
+    ]
 
-    # 데이터 로더로 저장
+    # ✅ train/val 분할 (DataFrame 기준)
+    cut = int(len(full_df) * 0.8)
+    train_df, val_df = full_df.iloc[:cut], full_df.iloc[cut:]
+
+    # ✅ 정규화
+    train_scaled, val_scaled, scaler = normalize_features(train_df, val_df, feature_cols)
+
+    # ✅ 시퀀스 생성
+    window = 120
+    train_seq = preprocess_sequence_input(pd.DataFrame(train_scaled, columns=feature_cols), window, feature_cols)
+    val_seq = preprocess_sequence_input(pd.DataFrame(val_scaled, columns=feature_cols), window, feature_cols)
+
+    # ✅ 라벨 생성 (원본 df 기준)
+    train_labels = create_labels(train_df, window)[:-1]
+    val_labels = create_labels(val_df, window)[:-1]
+    # ✅ 길이 맞추기 (시퀀스를 라벨 수에 맞춰 자름)
+    train_seq = train_seq[:len(train_labels)]
+    val_seq = val_seq[:len(val_labels)]
+    # ✅ TensorDataset 구성
+    train_set = torch.utils.data.TensorDataset(
+        torch.tensor(train_seq, dtype=torch.float32),
+        torch.tensor(train_labels, dtype=torch.long)
+    )
+    val_set = torch.utils.data.TensorDataset(
+        torch.tensor(val_seq, dtype=torch.float32),
+        torch.tensor(val_labels, dtype=torch.long)
+    )
+
+    # ✅ Dataloader
     train_loader = DataLoader(train_set, batch_size=64, shuffle=True)
     val_loader = DataLoader(val_set, batch_size=64, shuffle=False)
 
-    # 입력 차원 확인 (ex: (20, 5) => input_dim=5)
-    sample_x, _ = dataset[0]
-    input_dim = sample_x.shape[-1]  # 마지막 인덱스 값: 한 시점 당 피처 개수
+    # ✅ 모델 초기화
+    input_dim = train_seq.shape[-1]
+    model = AttentionGRUClassifier(input_dim=input_dim)
 
-    model = PriceMovementClassifier(input_dim=input_dim)
-    train(model, dataloader=train_loader, val_loader=val_loader, epochs=10_000, log_freq= 100,show_plot=True)
+    # ✅ 학습 실행
+    train(model, dataloader=train_loader, val_loader=val_loader, epochs=500, log_freq=10, show_plot=True)
+
+    
