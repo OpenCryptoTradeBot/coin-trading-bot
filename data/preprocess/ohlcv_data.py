@@ -1,6 +1,8 @@
 import pandas as pd
 import numpy as np
+from sklearn.preprocessing import StandardScaler
 
+from data.indicators import apply_all_indicators
 
 def preprocess_candles(candles: list) -> pd.DataFrame:
     """
@@ -30,12 +32,13 @@ def preprocess_candles(candles: list) -> pd.DataFrame:
 
     # 컬럼 이름 통일 (표준 OHLCV)
     df.columns = ["datetime", "open", "high", "low", "close", "volume"]
-
+    df = apply_all_indicators(df)
+    df = df.dropna().reset_index(drop=True)
     return df
 
 def preprocess_sequence_input(
     df: pd.DataFrame, 
-    window: int = 20, 
+    window: int = 30, 
     feature_cols: list[str] = ["open", "high", "low", "close", "volume"]
 ) -> np.ndarray:
     """
@@ -64,8 +67,10 @@ def preprocess_sequence_input(
 
 def create_labels(
     df: pd.DataFrame, 
-    window: int = 20,
-    label_col: str = "close"
+    window: int = 30,
+    label_col: str = "close",
+    future_look_ahead_steps: int = 10,  # 몇 분(캔들 수) 뒤를 예측할 것인가(defualt: 10개개)
+    threshold: float = 0.004,       # 예시: 10분 동안 +-0.4% (조절 필요)
 ) -> np.ndarray:
     """
     시계열 라벨 생성 함수
@@ -76,6 +81,8 @@ def create_labels(
         df (pd.DataFrame): OHLCV 데이터프레임
         window (int): 입력 시퀀스 길이
         label_col (str): 기준 가격 컬럼 (기본은 "close")
+        future_look_ahead_steps: 몇 분(캔들 수) 뒤를 예측할 것인가(defualt: 10분)
+        threshold: float = 0.0015 # 예시: 10분 동안 0.15% 상승 (조절 필요)
 
     Returns:
         np.ndarray: (N,) 형태의 라벨 배열 (0 or 1)
@@ -86,15 +93,33 @@ def create_labels(
     prices = df[label_col].values
     labels = []
 
-    for i in range(window, len(prices) - 1):
+    for i in range(window, len(prices) - future_look_ahead_steps):
         now = prices[i]
-        future = prices[i + 1]
+        future = prices[i + future_look_ahead_steps]
         change = (future - now) / now
-        if change >= 0.0002:
+        if change >= threshold:
             labels.append(1)  # 상승
-        elif change <= -0.0002:
+        elif change <= -threshold:
             labels.append(2)  # 하락
         else:
             labels.append(0)  # 변동 없음
 
     return np.array(labels, dtype=np.int64)
+
+def normalize_features(train_df: pd.DataFrame, val_df: pd.DataFrame, feature_cols: list[str]) -> tuple[np.ndarray, np.ndarray, StandardScaler]:
+    """
+    학습용 데이터 기준으로 정규화 스케일러를 fit하고,
+    학습/검증 데이터에 동일 스케일로 transform을 적용한다.
+
+    Returns:
+        train_features (np.ndarray): 정규화된 학습 피처
+        val_features (np.ndarray): 정규화된 검증 피처
+        scaler (StandardScaler): 학습된 스케일러 객체 (추후 테스트에 재사용 가능)
+    """
+    scaler = StandardScaler()
+    scaler.fit(train_df[feature_cols])
+
+    train_scaled = scaler.transform(train_df[feature_cols])
+    val_scaled = scaler.transform(val_df[feature_cols])
+
+    return train_scaled, val_scaled, scaler
