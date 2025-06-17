@@ -238,11 +238,11 @@ def train(
 if __name__ == "__main__":
     # 데이터셋 불러오기
     api = UpbitAPI()
-    dt = datetime(2025, 2, 28, 0, 0, 0)
+    dt = Config.dt
     dfs = []  # 여러 개의 DataFrame 저장 리스트
 
-    for i in range(100):
-        raw_data = api.get_candles("KRW-XRP", unit="minute", interval=1, count=200, to=dt)
+    for i in range(250):
+        raw_data = api.get_candles("KRW-BTC", unit="minute", interval=60, count=200, to=dt)
         #print(raw_data)
         df = preprocess_candles(raw_data)
         print(f"Data count: {i * 200}, Date: {dt}")
@@ -251,7 +251,7 @@ if __name__ == "__main__":
         # 가장 과거 시점 기준으로 to 값을 업데이트 (Upbit는 과거로 조회됨)
         earliest_time = df.iloc[-1]["datetime"]
         # 다음 요청 시점
-        dt = earliest_time + timedelta(minutes=1) - timedelta(hours=5, minutes=40)  
+        dt = earliest_time + timedelta(minutes=60) + timedelta(minutes=60*200)  
         sleep(0.1)
 
     # 전체 데이터프레임 연결
@@ -280,8 +280,8 @@ if __name__ == "__main__":
     val_seq = preprocess_sequence_input(pd.DataFrame(val_scaled, columns=feature_cols), window, feature_cols)
 
     # ✅ 라벨 생성 (원본 df 기준)
-    train_labels = create_labels(train_df, window,threshold=Config.threshold)[:-1]
-    val_labels = create_labels(val_df, window, threshold= Config.threshold)[:-1]
+    train_labels = create_labels(train_df, window,future_look_ahead_steps=Config.future_look_ahead_steps, threshold=Config.threshold)[:-1]
+    val_labels = create_labels(val_df, window, future_look_ahead_steps=Config.future_look_ahead_steps, threshold= Config.threshold)[:-1]
     # ✅ 길이 맞추기 (시퀀스를 라벨 수에 맞춰 자름)
     train_seq = train_seq[:len(train_labels)]
     val_seq = val_seq[:len(val_labels)]
@@ -304,4 +304,4 @@ if __name__ == "__main__":
     model = AttentionGRUClassifier(input_dim=input_dim, hidden_dim= Config.hidden_dim, num_layers=Config.num_layer, dropout= Config.dropout)
 
     # ✅ 학습 실행
-    train(model, dataloader=train_loader, val_loader=val_loader, epochs=Config.epochs, log_freq=10, show_plot=True)
+    train(model, dataloader=train_loader, val_loader=val_loader, epochs=Config.epochs, log_freq=1, show_plot=True)

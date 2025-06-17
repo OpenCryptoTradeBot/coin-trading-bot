@@ -25,7 +25,7 @@ class AttentionGRUClassifier(nn.Module):
     def __init__(self, input_dim, hidden_dim=1024, num_layers=2, dropout=0.3, num_classes=3):
         super().__init__()
         self.gru = nn.GRU(
-            input_dim,          # 입력 feature 차원 (OHLCV 쓰고 있으니 5)
+            input_dim,          # 입력 feature 차원 
             hidden_dim,         # GRU의 hidden state 크기
             num_layers = num_layers,       # GRU 층의 깊이
             batch_first=True,
