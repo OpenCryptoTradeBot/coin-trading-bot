@@ -1,9 +1,10 @@
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 import requests
 from typing import Optional
 
 class UpbitAPI:
     BASE_URL = "https://api.upbit.com/v1"
+    KST = timezone(timedelta(hours=9))
 
     def __init__(self):
         self.session = requests.Session()
@@ -34,6 +35,8 @@ class UpbitAPI:
             url = f"{self.BASE_URL}/candles/minutes/{interval}"
         else:
             url = f"{self.BASE_URL}/candles/{unit}s"
+
+        to = to.replace(tzinfo=self.KST).astimezone(timezone.utc)
         params = {
             "market": market,
             "count": count,

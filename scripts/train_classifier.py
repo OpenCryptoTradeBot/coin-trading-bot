@@ -12,6 +12,7 @@ import matplotlib.pyplot as plt
 
 from agents.networks.classifier import PriceMovementClassifier, AttentionGRUClassifier
 from config.model import PMCModelConfig
+from config import Config
 from data.preprocess.ohlcv_data import preprocess_candles, preprocess_sequence_input, create_labels, normalize_features
 from data.upbit_api import UpbitAPI
 
@@ -75,17 +76,16 @@ def train(
     lr = PMCModelConfig.lr
     # 손실함수 설정 -> 가중치 적용함
     #loss_fn_class = getattr(torch.nn, PMCModelConfig.loss_fn)
-    #loss_fn = loss_fn_class()
-    #torch.nn.CrossEntropyLoss
     all_labels = torch.cat([y for _, y in dataloader], dim=0).cpu().numpy()
-    weight_tensor = torch.tensor([0.8, 1.5, 1.5], dtype=torch.float32).to(device)
+    weight_tensor = Config.weight_tensor.to(device)
     loss_fn = torch.nn.CrossEntropyLoss(weight=weight_tensor)
     # 옵티마이저 설정
     optim_class = getattr(torch.optim, PMCModelConfig.optim)
     optimizer = optim_class(model.parameters(), lr=lr)
-    #최적모델을 저장하기위한 변수 설정정
+    #최적모델을 저장하기위한 변수 설정
+    
     best_val_acc = 0.0
-    patience = 100
+    patience = Config.patience
     no_improve_epochs = 0
     # ReduceLROnPlateau 설정
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
@@ -238,11 +238,11 @@ def train(
 if __name__ == "__main__":
     # 데이터셋 불러오기
     api = UpbitAPI()
-    dt = datetime(2025, 2, 28, 0, 0, 0)
+    dt = Config.dt
     dfs = []  # 여러 개의 DataFrame 저장 리스트
 
-    for i in range(100):
-        raw_data = api.get_candles("KRW-XRP", unit="minute", interval=1, count=200, to=dt)
+    for i in range(250):
+        raw_data = api.get_candles("KRW-BTC", unit="minute", interval=60, count=200, to=dt)
         #print(raw_data)
         df = preprocess_candles(raw_data)
         print(f"Data count: {i * 200}, Date: {dt}")
@@ -251,12 +251,12 @@ if __name__ == "__main__":
         # 가장 과거 시점 기준으로 to 값을 업데이트 (Upbit는 과거로 조회됨)
         earliest_time = df.iloc[-1]["datetime"]
         # 다음 요청 시점
-        dt = earliest_time + timedelta(minutes=1) - timedelta(hours=5, minutes=40)  
+        dt = earliest_time + timedelta(minutes=60) + timedelta(minutes=60*200)  
         sleep(0.1)
 
     # 전체 데이터프레임 연결
     full_df = pd.concat(dfs, ignore_index=True).sort_values("datetime").reset_index(drop=True)
-    full_df = full_df.dropna().reset_index(drop=True) #이거 해준거 아닌가?
+    full_df = full_df.dropna().reset_index(drop=True)
 
     # ✅ feature 컬럼 정의
     feature_cols = [
@@ -275,13 +275,13 @@ if __name__ == "__main__":
     train_scaled, val_scaled, scaler = normalize_features(train_df, val_df, feature_cols)
 
     # ✅ 시퀀스 생성
-    window = 120
+    window = Config.window
     train_seq = preprocess_sequence_input(pd.DataFrame(train_scaled, columns=feature_cols), window, feature_cols)
     val_seq = preprocess_sequence_input(pd.DataFrame(val_scaled, columns=feature_cols), window, feature_cols)
 
     # ✅ 라벨 생성 (원본 df 기준)
-    train_labels = create_labels(train_df, window)[:-1]
-    val_labels = create_labels(val_df, window)[:-1]
+    train_labels = create_labels(train_df, window,future_look_ahead_steps=Config.future_look_ahead_steps, threshold=Config.threshold)[:-1]
+    val_labels = create_labels(val_df, window, future_look_ahead_steps=Config.future_look_ahead_steps, threshold= Config.threshold)[:-1]
     # ✅ 길이 맞추기 (시퀀스를 라벨 수에 맞춰 자름)
     train_seq = train_seq[:len(train_labels)]
     val_seq = val_seq[:len(val_labels)]
@@ -301,9 +301,7 @@ if __name__ == "__main__":
 
     # ✅ 모델 초기화
     input_dim = train_seq.shape[-1]
-    model = AttentionGRUClassifier(input_dim=input_dim)
+    model = AttentionGRUClassifier(input_dim=input_dim, hidden_dim= Config.hidden_dim, num_layers=Config.num_layer, dropout= Config.dropout)
 
     # ✅ 학습 실행
-    train(model, dataloader=train_loader, val_loader=val_loader, epochs=500, log_freq=10, show_plot=True)
-
-    
+    train(model, dataloader=train_loader, val_loader=val_loader, epochs=Config.epochs, log_freq=1, show_plot=True)

@@ -107,19 +107,34 @@ def create_labels(
     return np.array(labels, dtype=np.int64)
 
 def normalize_features(train_df: pd.DataFrame, val_df: pd.DataFrame, feature_cols: list[str]) -> tuple[np.ndarray, np.ndarray, StandardScaler]:
-    """
-    학습용 데이터 기준으로 정규화 스케일러를 fit하고,
-    학습/검증 데이터에 동일 스케일로 transform을 적용한다.
 
-    Returns:
-        train_features (np.ndarray): 정규화된 학습 피처
-        val_features (np.ndarray): 정규화된 검증 피처
-        scaler (StandardScaler): 학습된 스케일러 객체 (추후 테스트에 재사용 가능)
-    """
+    train_df = train_df.copy()
+    val_df = val_df.copy()
+
+    # 거래량 관련: log1p
+    for vol_col in ["volume", "vol_ma5", "vol_ma20"]:
+        train_df[f"{vol_col}_log"] = np.log1p(train_df[vol_col])
+        val_df[f"{vol_col}_log"] = np.log1p(val_df[vol_col])
+
+    # RSI: 0~100 → 0~1로 스케일링
+    train_df["rsi14_scaled"] = train_df["rsi14"] / 100.0
+    val_df["rsi14_scaled"] = val_df["rsi14"] / 100.0
+
+    # --- 새롭게 사용할 피처 컬럼 목록 생성 ---
+    updated_features = []
+    for col in feature_cols:
+        if col in ["volume", "vol_ma5", "vol_ma20"]:
+            updated_features.append(f"{col}_log")
+        elif col == "rsi14":
+            updated_features.append("rsi14_scaled")
+        else:
+            updated_features.append(col)
+
+    # --- 정규화 ---
     scaler = StandardScaler()
-    scaler.fit(train_df[feature_cols])
+    scaler.fit(train_df[updated_features])
 
-    train_scaled = scaler.transform(train_df[feature_cols])
-    val_scaled = scaler.transform(val_df[feature_cols])
+    train_scaled = scaler.transform(train_df[updated_features])
+    val_scaled = scaler.transform(val_df[updated_features])
 
     return train_scaled, val_scaled, scaler
