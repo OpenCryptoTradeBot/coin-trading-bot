@@ -236,6 +236,9 @@ def train(
         ))
 
 if __name__ == "__main__":
+    # 데이터 수집 및 전처리 단계는 한 번만 실행하여 btc_data.csv로 저장했음
+    # 아래코드는 이후 실행 시 불필요하므로 비활성화 처리함
+    '''
     # 데이터셋 불러오기
     api = UpbitAPI()
     dt = Config.dt
@@ -257,6 +260,13 @@ if __name__ == "__main__":
     # 전체 데이터프레임 연결
     full_df = pd.concat(dfs, ignore_index=True).sort_values("datetime").reset_index(drop=True)
     full_df = full_df.dropna().reset_index(drop=True)
+
+    # 데이터프레임 저장
+    full_df.to_csv("data/btc_data.csv", index=False)
+    '''
+
+    # 데이터 프레임 불러오기
+    full_df = pd.read_csv("data/btc_data.csv")
 
     # ✅ feature 컬럼 정의
     feature_cols = [
